@@ -1,0 +1,108 @@
+---
+title: "NYPD_Shooting_Report"
+author: "Wojciech Gajewski"
+date: "2024-08-15"
+output: pdf_document
+---
+
+## Load the dataset into R:
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(caret)
+library(lubridate)
+library(randomForest)
+
+file_path <- "C:\\Users\\wgaje\\Documents\\R_assaiment\\NYPD_Shooting_Incident_Data__Historic__2024.csv"
+df <- read.csv(file_path)
+
+str(df)
+summary(df)
+```
+
+## Tidy the Data
+
+Perform data cleaning and tidying to make the dataset more manageable:
+
+```{r dataprocessing}
+df <- df %>%
+  select(INCIDENT_KEY, OCCUR_DATE, OCCUR_TIME, BORO, LOC_OF_OCCUR_DESC, PRECINCT, Latitude, Longitude, STATISTICAL_MURDER_FLAG)
+
+# Convert OCCUR_DATE to Date format and OCCUR_TIME to Time format
+df <- df %>%
+  mutate(OCCUR_DATE = as.Date(OCCUR_DATE, format="%m/%d/%Y"),
+         OCCUR_TIME = hms::as_hms(OCCUR_TIME))
+
+# Check for missing values
+sum(is.na(df))
+
+# Remove rows with missing values
+df <- df %>% drop_na()
+head(df)
+```
+
+### Visualization 1: Number of Incidents by Borough
+
+```{r plotting1, echo=FALSE}
+# Plot the number of incidents by borough
+ggplot(df, aes(x = BORO)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Number of Shooting Incidents by Borough", x = "Borough", y = "Number of Incidents") +
+  theme_minimal()
+
+```
+
+### Visualization 2: Shooting Incidents Over Time
+
+```{r plotting2, echo=FALSE}
+# Plot incidents over time
+ggplot(df, aes(x = OCCUR_DATE)) +
+  geom_histogram(binwidth = 30, fill = "darkred", color = "white") +
+  labs(title = "Shooting Incidents Over Time", x = "Date", y = "Number of Incidents") +
+  theme_minimal()
+```
+
+## Build a Simple Model
+
+We'll build a simple model to predict whether an incident was a murder or not based on the available features.
+
+### Model: Random Forest
+
+```{r modeling}
+# Convert STATISTICAL_MURDER_FLAG to a factor
+df$STATISTICAL_MURDER_FLAG <- as.factor(df$STATISTICAL_MURDER_FLAG)
+
+set.seed(123)
+train_index <- createDataPartition(df$STATISTICAL_MURDER_FLAG, p = 0.7, list = FALSE)
+train_data <- df[train_index, ]
+test_data <- df[-train_index, ]
+
+colSums(is.na(train_data))
+preProcess_missingdata_model <- preProcess(train_data, method = 'medianImpute')
+train_data <- train_data[, colSums(is.na(train_data)) == 0]
+
+rf_model <- randomForest(STATISTICAL_MURDER_FLAG ~ ., data = train_data, importance = TRUE)
+predictions <- predict(rf_model, newdata = test_data)
+
+confusion_matrix <- confusionMatrix(predictions, test_data$STATISTICAL_MURDER_FLAG)
+print(confusion_matrix)
+```
+
+## Summary of Bias in the Model:
+
+### Accuracy and NIR:
+
+The model's accuracy (80.02%) is close to the No Information Rate (80.63%), suggesting it mostly predicts the majority class ("false" for non-murder).
+
+### Kappa Statistic:
+A low Kappa (0.1241) indicates poor performance beyond random chance, highlighting the model's difficulty in handling class imbalance.
+
+### Sensitivity and Specificity:
+
+Sensitivity (96.14% for "false"): The model is highly sensitive to predicting non-murders. Specificity (12.92% for "true"): The model struggles to correctly identify murders, reflecting bias towards the majority class.
+
+### Bias Implications:
+
+The model is biased towards predicting the majority class (non-murders), leading to poor detection of the minority class (murders). This imbalance is critical, especially in safety-related predictions, where identifying murders accurately is crucial.
